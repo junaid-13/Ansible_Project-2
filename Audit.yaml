@@ -1,9 +1,57 @@
-- name: Update packages on Ubuntu
-  hosts: all
+---
+- name: Ubuntu Security Handling
+  hosts: dev
   become: yes
+  vars_files:
+    - vars/secrets.yaml
+
   tasks:
-    - name: Update packages on Deiban based systems
+    - name: Ensure UFW is installed
       apt:
+        name: ufw
+        state: present
         update_cache: yes
+
+    - name: Enable and start UFW firewall
+      command: ufw enable
+      register: ufw_outputss
+      ignore_errors: false
+
+    - name: Ensure UFW is enabled and running
+      service:
+        name: ufw
+        enabled: true
+        state: started
+
+    - name: Disable password based SSH authentication
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        state: present
+        backrefs: yes
+
+    - name: Restart SSH service to apply configuration changes
+      service: 
+        name: ssh
+        state: restarted
+    
+    - name: Update APT cache and upgrade all packages
+      apt:
         upgrade: dist
-      when: ansible_os_family == "Debian"
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Add user with password stored in Ansible Vault
+      user:
+        name: secureuser
+        password: "{{ user_password | password_hash('sha512'0) }}"
+        state: present
+
+    - name: Find world-writeable files (potential security risk)
+      command: find / -xdev -type f -perm -0002
+      register: world_writable_files
+
+    - name: Print list of world-writeable files
+      debug:
+        var: world_writeable_files.stdout_lines
